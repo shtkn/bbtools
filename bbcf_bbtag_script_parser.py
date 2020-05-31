@@ -18,9 +18,12 @@ uponLookup = {
     0:"IMMEDIATE",
     1:"STATE_END",
     2:"LANDING",
-    10:"ON_HIT_OR_BLOCK"
+    3:"CLEAR_OR_EXIT",
+    10:"ON_HIT_OR_BLOCK",
 }
 slotLookup = {
+    0: "ReturnVal",
+    18: "FrameCounter",
     47: "IsInOverdrive",
     54: "IsInOverdrive2",
     106: "IsInOverdrive3",
@@ -45,17 +48,11 @@ def findNamedValue(command, value):
         return value
 
 def getUponName(cmdData):
-    if cmdData == 0:
-        return "IMMEDIATE"
-    if cmdData == 1:
-        return "STATE_END"
-    if cmdData == 2:
-        return "LANDING"
-    if cmdData == 10:
-        return "ON_HIT_OR_BLOCK"
-    return str(cmdData)
+    return uponLookup.get(cmdData,str(cmdData))
+
 def getSlotName(cmdData):
-    return cmdData
+    return slotLookup.get(cmdData,str(cmdData))
+
 def sanitizer(command):
     def sanitize(s):
         if command in [43,14012,14001] and isinstance(s, int):
@@ -66,6 +63,7 @@ def sanitizer(command):
             s = hex(s)
         return str(s).strip("\x00")
     return sanitize
+
 def pysanitizer(command):
     def sanitize(s):
         if isinstance(s,str):
@@ -172,10 +170,14 @@ def parse_bbscript_routine(f,end = -1):
             astStack[-1].append(If(tmp,[],[]))
             astStack.append(astStack[-1][-1].body)
         elif currentCMD == 18 and cmdData[1] == 0:
-            tmp = astStack[-1].pop()
-            if not hasattr(tmp,"value"):
-                tmp = Expr(tmp)
-            astStack[-1].append(If(tmp.value,[],[]))
+            if astStack[-1] == []:
+                tmp = Name(id="SLOT_"+str(getSlotName(cmdData[1])))
+                astStack[-1].append(If(tmp,[],[]))
+            else: 
+                tmp = astStack[-1].pop()
+                if not hasattr(tmp,"value"):
+                    tmp = Expr(tmp)
+                astStack[-1].append(If(tmp.value,[],[]))
             astStack[-1][-1].body = [Expr(Call(Name(id="_gotolabel"),[cmdData[0]],[],None,None))]
         elif currentCMD == 18:
 
@@ -234,10 +236,14 @@ def parse_bbscript_routine(f,end = -1):
             tmp = Assign([lval],BinOp(lval,op,rval))
             astStack[-1].append(tmp)
         elif currentCMD == 54 and cmdData[1] == 0:
-            tmp = astStack[-1].pop()
-            if not hasattr(tmp,"value"):
-                tmp = Expr(tmp)
-            astStack[-1].append(If(UnaryOp(Not(),tmp.value),[],[]))
+            if astStack[-1] == []:
+                tmp = Name(id="SLOT_"+str(getSlotName(cmdData[1])))
+                astStack[-1].append(If(tmp,[],[]))
+            else: 
+                tmp = astStack[-1].pop()
+                if not hasattr(tmp,"value"):
+                    tmp = Expr(tmp)
+                astStack[-1].append(If(UnaryOp(Not(),tmp.value),[],[]))
             astStack.append(astStack[-1][-1].body)
         elif currentCMD == 54:
             tmp = Name(id="SLOT_"+str(getSlotName(cmdData[1])))
@@ -245,7 +251,10 @@ def parse_bbscript_routine(f,end = -1):
             astStack.append(astStack[-1][-1].body)
         elif currentCMD == 56:
             ifnode = astStack[-1][-1]
-            astStack.append(ifnode.orelse)
+            if(isinstance(ifnode, If)):
+                astStack.append(ifnode.orelse)
+            else:
+                astStack.append([])
         elif currentCMD in [1,5,9,16,55,57]:
             if len(astStack[-1]) == 0:
                 astStack[-1].append(Pass())
